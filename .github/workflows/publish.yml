@@ -1,0 +1,65 @@
+name: publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: Target repository
+        required: true
+        default: testpypi
+        type: choice
+        options:
+          - testpypi
+          - pypi
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Quality gates
+        run: |
+          python -m ruff check .
+          python -m mypy src
+          python -m pytest -q
+
+      - name: Build package
+        run: |
+          rm -rf build dist
+          python -m build
+          python -m twine check dist/*
+
+      - name: Publish to TestPyPI
+        if: ${{ inputs.repository == 'testpypi' }}
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
+        run: |
+          if [ -z "${TWINE_PASSWORD}" ]; then
+            echo "Missing secret TEST_PYPI_API_TOKEN"
+            exit 1
+          fi
+          python -m twine upload --repository-url https://test.pypi.org/legacy/ --skip-existing dist/*
+
+      - name: Publish to PyPI
+        if: ${{ inputs.repository == 'pypi' }}
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          if [ -z "${TWINE_PASSWORD}" ]; then
+            echo "Missing secret PYPI_API_TOKEN"
+            exit 1
+          fi
+          python -m twine upload --repository-url https://upload.pypi.org/legacy/ --skip-existing dist/*
