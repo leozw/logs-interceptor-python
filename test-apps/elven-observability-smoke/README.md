@@ -1,6 +1,6 @@
 # Elven Observability Smoke App
 
-Small test app to validate real log delivery using `logs-interceptor-python` with env-based config.
+Small test app to validate real log delivery using `elven-logs-interceptor-python` with env-based config.
 
 ## Run
 

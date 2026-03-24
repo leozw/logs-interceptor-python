@@ -94,7 +94,7 @@ class LokiProtobufTransport:
                 "Content-Type": "application/x-protobuf",
                 "Content-Encoding": "snappy",
                 "X-Scope-OrgID": self._config.tenant_id,
-                "User-Agent": "logs-interceptor-python/0.1.1",
+                "User-Agent": "elven-logs-interceptor-python/0.1.2",
                 **self._extra_headers,
             }
             if self._config.auth_token:

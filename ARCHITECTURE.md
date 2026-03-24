@@ -1,4 +1,4 @@
-# Clean Architecture - logs-interceptor-python
+# Clean Architecture - elven-logs-interceptor-python
 
 This project follows Clean Architecture and SOLID principles.
 

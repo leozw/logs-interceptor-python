@@ -3,14 +3,14 @@ requires = ["hatchling>=1.25.0"]
 build-backend = "hatchling.build"
 
 [project]
-name = "logs-interceptor-python"
-version = "0.1.1"
+name = "elven-logs-interceptor-python"
+version = "0.1.2"
 description = "Production-grade logs interceptor for Python with Loki transport, resilience, batching, and framework integrations."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [
-  { name = "Leonardo Zwirtes" }
+  { name = "Elven Observability" }
 ]
 keywords = [
   "logs",
@@ -88,11 +88,6 @@ dev = [
   "build>=1.2.2",
   "twine>=5.1.1",
 ]
-
-[project.urls]
-Homepage = "https://github.com/leozw/logs-interceptor-python"
-Repository = "https://github.com/leozw/logs-interceptor-python"
-Issues = "https://github.com/leozw/logs-interceptor-python/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/logs_interceptor"]

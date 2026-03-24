@@ -88,7 +88,7 @@ class LokiJsonTransport:
             headers: dict[str, str] = {
                 "Content-Type": "application/json",
                 "X-Scope-OrgID": self._config.tenant_id,
-                "User-Agent": "logs-interceptor-python/0.1.1",
+                "User-Agent": "elven-logs-interceptor-python/0.1.2",
                 **self._extra_headers,
             }
             if self._config.auth_token:

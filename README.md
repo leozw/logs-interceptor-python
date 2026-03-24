@@ -1,17 +1,17 @@
-# logs-interceptor-python
+# elven-logs-interceptor-python
 
 High-performance, production-ready log interceptor for Python with Loki transport, batching, compression, circuit breaker, DLQ, and framework integrations.
 
 ## Installation
 
 ```bash
-pip install logs-interceptor-python
+pip install elven-logs-interceptor-python
 ```
 
 With all extras:
 
 ```bash
-pip install "logs-interceptor-python[all]"
+pip install "elven-logs-interceptor-python[all]"
 ```
 
 ## Quick Start
@@ -120,6 +120,12 @@ Labels:
 - `destroy()`
 - `adestroy()`
 - `logger` proxy with `debug/info/warn/error/fatal/log/track_event/flush/aflush/get_metrics/get_health/destroy/adestroy/with_context/with_context_async`
+
+Python import remains:
+
+```python
+import logs_interceptor
+```
 
 ## Integrations
 

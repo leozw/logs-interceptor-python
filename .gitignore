@@ -8,6 +8,7 @@ __pycache__/
 htmlcov/
 .venv/
 .env
+.DS_Store
 .logs-interceptor-dlq/
 build/
 dist/
