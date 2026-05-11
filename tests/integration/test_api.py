@@ -100,3 +100,23 @@ def test_flush_propagates_transport_errors() -> None:
 
     with pytest.raises(httpx.ConnectError):
         instance.flush()
+
+
+def test_runtime_uses_configured_excluded_logger_prefixes() -> None:
+    instance = init(
+        {
+            **_valid_config(),
+            "interceptConsole": True,
+            "filter": {"excludeLoggerPrefixes": ["botocore"]},
+        }
+    )
+    assert instance is get_logger()
+
+    import logging
+
+    logging.getLogger("botocore.endpoint").warning("should be ignored")
+    logging.getLogger("service.app").warning("should be captured")
+
+    metrics = instance.get_metrics()
+    assert metrics["logs_processed"] >= 1
+    assert metrics["logs_processed"] < 3

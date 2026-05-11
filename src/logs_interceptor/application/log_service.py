@@ -14,7 +14,7 @@ from ..domain.entities import LogEntryEntity
 from ..domain.interfaces import IContextProvider, ILogBuffer, ILogFilter, ILogger, ILogTransport
 from ..infrastructure.metrics.metrics_collector import MetricsCollector
 from ..types import CircuitBreakerState, HealthStatus, LoggerMetrics, LogLevel
-from ..utils import internal_warn
+from ..utils import internal_warn, normalize_log_call
 
 resource: Any = None
 try:
@@ -22,11 +22,11 @@ try:
 except Exception:  # pragma: no cover
     pass
 
-otel_trace: Any = None
+otel_trace: Any | None
 try:
     from opentelemetry import trace as otel_trace
 except Exception:  # pragma: no cover - optional dependency
-    pass
+    otel_trace = None
 
 
 @dataclass(slots=True)
@@ -90,24 +90,82 @@ class LogService(ILogger):
             except Exception:
                 pass
 
-    def debug(self, message: str, context: dict[str, Any] | None = None) -> None:
-        self.log("debug", message, context)
+    def debug(
+        self,
+        message: str,
+        *args: Any,
+        context: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self.log("debug", message, *args, context=context, **kwargs)
 
-    def info(self, message: str, context: dict[str, Any] | None = None) -> None:
-        self.log("info", message, context)
+    def info(
+        self,
+        message: str,
+        *args: Any,
+        context: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self.log("info", message, *args, context=context, **kwargs)
 
-    def warn(self, message: str, context: dict[str, Any] | None = None) -> None:
-        self.log("warn", message, context)
+    def warn(
+        self,
+        message: str,
+        *args: Any,
+        context: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self.log("warn", message, *args, context=context, **kwargs)
 
-    def error(self, message: str, context: dict[str, Any] | None = None) -> None:
-        self.log("error", message, context)
+    def warning(
+        self,
+        message: str,
+        *args: Any,
+        context: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self.warn(message, *args, context=context, **kwargs)
 
-    def fatal(self, message: str, context: dict[str, Any] | None = None) -> None:
-        self.log("fatal", message, context)
+    def error(
+        self,
+        message: str,
+        *args: Any,
+        context: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self.log("error", message, *args, context=context, **kwargs)
+
+    def exception(
+        self,
+        message: str,
+        *args: Any,
+        context: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        kwargs.setdefault("exc_info", True)
+        self.error(message, *args, context=context, **kwargs)
+
+    def fatal(
+        self,
+        message: str,
+        *args: Any,
+        context: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self.log("fatal", message, *args, context=context, **kwargs)
         try:
             self.flush()
         except Exception:
             pass
+
+    def critical(
+        self,
+        message: str,
+        *args: Any,
+        context: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self.fatal(message, *args, context=context, **kwargs)
 
     def with_context(self, context: dict[str, Any], fn: Callable[[], Any]) -> Any:
         return self._context_provider.run_with_context(context, fn)
@@ -115,7 +173,14 @@ class LogService(ILogger):
     async def with_context_async(self, context: dict[str, Any], fn: Callable[[], Any]) -> Any:
         return await self._context_provider.run_with_context_async(context, fn)
 
-    def log(self, level: LogLevel, message: str, context: dict[str, Any] | None = None) -> None:
+    def log(
+        self,
+        level: LogLevel,
+        message: str,
+        *args: Any,
+        context: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
         if self._destroyed:
             self._metrics["logs_dropped"] += 1
             return
@@ -123,6 +188,7 @@ class LogService(ILogger):
         if not self._filter.is_level_enabled(level):
             return
 
+        message, context = normalize_log_call(message, *args, context=context, **kwargs)
         entry = self._create_log_entry(level, message, context)
 
         if not self._filter.should_process(entry):

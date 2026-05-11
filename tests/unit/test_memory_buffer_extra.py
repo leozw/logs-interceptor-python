@@ -106,6 +106,33 @@ def test_schedule_flush_callback_runs_with_entries() -> None:
     buffer.destroy()
 
 
+def test_schedule_flush_callback_does_not_hold_buffer_lock() -> None:
+    callback_started = threading.Event()
+    release_callback = threading.Event()
+    add_completed = threading.Event()
+    buffer = _buffer(flush_interval=5, auto_flush=True)
+
+    def flush_callback() -> None:
+        callback_started.set()
+        release_callback.wait(timeout=1)
+
+    buffer.set_flush_callback(flush_callback)
+    buffer.add(_entry("1", "2026-01-01T00:00:00+00:00"))
+    assert callback_started.wait(timeout=1)
+
+    def add_entry() -> None:
+        buffer.add(_entry("2", "2026-01-01T00:00:01+00:00"))
+        add_completed.set()
+
+    add_thread = threading.Thread(target=add_entry)
+    add_thread.start()
+    assert add_completed.wait(timeout=0.2)
+
+    release_callback.set()
+    add_thread.join(timeout=1)
+    buffer.destroy()
+
+
 def test_schedule_flush_destroyed_guard_inside_timer() -> None:
     event = threading.Event()
     buffer = _buffer(flush_interval=40, auto_flush=False)

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
+import logs_interceptor
 import logs_interceptor.application.log_service as log_service_module
 from logs_interceptor.application.log_service import LogService
 from logs_interceptor.domain.entities import LogEntryEntity
@@ -71,12 +73,14 @@ class _Transport:
     def __init__(self, fail: bool = False, half_open: bool = False) -> None:
         self.fail = fail
         self.sent = 0
+        self.entries: list[LogEntryEntity] = []
         self.half_open = half_open
         self.destroyed = False
 
     def send(self, entries):
         if self.fail:
             raise RuntimeError("send failed")
+        self.entries.extend(entries)
         self.sent += len(entries)
 
     def is_available(self):
@@ -189,6 +193,12 @@ class _BadDestroyTransport(_Transport):
         raise RuntimeError("transport destroy failed")
 
 
+def _last_entry(service: LogService) -> LogEntryEntity:
+    buffer = service._buffer
+    assert len(buffer.entries) >= 1
+    return buffer.entries[-1]
+
+
 def test_log_service_processes_and_flushes() -> None:
     service = _service()
     service.info("hello", {"k": "v"})
@@ -196,6 +206,177 @@ def test_log_service_processes_and_flushes() -> None:
 
     service.flush()
     assert service.get_metrics()["flush_count"] >= 1
+
+
+def test_log_service_supports_logging_style_format_args() -> None:
+    service = _service()
+    service.info("hello %s", "world")
+
+    entry = _last_entry(service)
+    assert entry.message == "hello world"
+    assert entry.context is None
+
+
+def test_log_service_supports_format_args_with_structured_context() -> None:
+    service = _service()
+    service.info("hello %s", "world", {"request_id": "abc-123"})
+
+    entry = _last_entry(service)
+    assert entry.message == "hello world"
+    assert entry.context == {"request_id": "abc-123"}
+
+
+def test_log_service_supports_mapping_percent_format_args() -> None:
+    service = _service()
+    service.info("hello %(name)s", {"name": "world"})
+
+    entry = _last_entry(service)
+    assert entry.message == "hello world"
+    assert entry.context is None
+
+
+def test_log_service_supports_brace_format_args() -> None:
+    service = _service()
+    service.info("hello {}", "world")
+
+    entry = _last_entry(service)
+    assert entry.message == "hello world"
+    assert entry.context is None
+
+
+def test_log_service_falls_back_for_malformed_format_args() -> None:
+    service = _service()
+    service.info("payload %s %s", "only-one")
+
+    entry = _last_entry(service)
+    assert entry.message == 'payload %s %s "only-one"'
+    assert entry.context is None
+
+
+def test_log_service_supports_extra_keyword_context() -> None:
+    service = _service()
+    service.info("created %s", 42, extra={"request_id": "abc-123"}, user_id="u-1")
+
+    entry = _last_entry(service)
+    assert entry.message == "created 42"
+    assert entry.context == {"request_id": "abc-123", "user_id": "u-1"}
+
+
+def test_log_service_merges_positional_context_with_keyword_context() -> None:
+    service = _service()
+    service.info(
+        "created %s",
+        42,
+        {"tenant": "elven"},
+        extra={"request_id": "abc-123"},
+        user_id="u-1",
+    )
+
+    entry = _last_entry(service)
+    assert entry.message == "created 42"
+    assert entry.context == {
+        "tenant": "elven",
+        "request_id": "abc-123",
+        "user_id": "u-1",
+    }
+
+
+def test_log_service_keeps_last_mapping_as_format_arg_when_placeholder_needs_it() -> None:
+    service = _service()
+    service.info("created %s %s", 42, {"payload": True})
+
+    entry = _last_entry(service)
+    assert entry.message == "created 42 {'payload': True}"
+    assert entry.context is None
+
+
+def test_log_service_merges_single_mapping_context_with_extra_when_no_placeholder() -> None:
+    service = _service()
+    service.info("created", {"tenant": "elven"}, extra={"request_id": "abc-123"})
+
+    entry = _last_entry(service)
+    assert entry.message == "created"
+    assert entry.context == {"tenant": "elven", "request_id": "abc-123"}
+
+
+def test_log_service_supports_explicit_context_keyword() -> None:
+    service = _service()
+    service.info("created %s", 42, context={"request_id": "abc-123"})
+
+    entry = _last_entry(service)
+    assert entry.message == "created 42"
+    assert entry.context == {"request_id": "abc-123"}
+
+
+def test_log_service_supports_exception_alias_with_exc_info() -> None:
+    service = _service()
+    try:
+        raise ValueError("boom")
+    except ValueError:
+        service.exception("failed for %s", "payload")
+
+    entry = _last_entry(service)
+    assert entry.level == "error"
+    assert entry.message == "failed for payload"
+    assert entry.context is not None
+    assert "ValueError: boom" in entry.context["exception"]
+
+
+def test_log_service_supports_warning_and_critical_aliases() -> None:
+    service = _service()
+    service.warning("careful %s", "now")
+    service.critical("fatal %s", "now")
+
+    transport = service._transport
+    assert transport.entries[-2].level == "warn"
+    assert transport.entries[-2].message == "careful now"
+    assert transport.entries[-1].level == "fatal"
+    assert transport.entries[-1].message == "fatal now"
+
+
+def test_global_logger_proxy_forwards_logging_style_calls(monkeypatch) -> None:
+    class _Target:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, tuple[object, ...], dict[str, object]]] = []
+
+        def info(self, *args, **kwargs) -> None:
+            self.calls.append(("info", args, kwargs))
+
+        def warn(self, *args, **kwargs) -> None:
+            self.calls.append(("warn", args, kwargs))
+
+        def exception(self, *args, **kwargs) -> None:
+            self.calls.append(("exception", args, kwargs))
+
+        def fatal(self, *args, **kwargs) -> None:
+            self.calls.append(("fatal", args, kwargs))
+
+    target = _Target()
+    monkeypatch.setattr(
+        logs_interceptor,
+        "_global_runtime",
+        SimpleNamespace(logger=target),
+    )
+
+    logs_interceptor.logger.info(
+        "payload %s",
+        {"ok": True},
+        extra={"request_id": "req-1"},
+    )
+    logs_interceptor.logger.warning("careful %s", "now")
+    logs_interceptor.logger.exception("failed %s", "payload", exc_info=True)
+    logs_interceptor.logger.critical("fatal %s", "now")
+
+    assert target.calls == [
+        (
+            "info",
+            ("payload %s", {"ok": True}),
+            {"context": None, "extra": {"request_id": "req-1"}},
+        ),
+        ("warn", ("careful %s", "now"), {"context": None}),
+        ("exception", ("failed %s", "payload"), {"context": None, "exc_info": True}),
+        ("fatal", ("fatal %s", "now"), {"context": None}),
+    ]
 
 
 def test_log_service_drops_when_filter_blocks() -> None:

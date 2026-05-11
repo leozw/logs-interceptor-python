@@ -7,6 +7,9 @@ import pytest
 
 from logs_interceptor.config import ResolvedTransportConfig
 from logs_interceptor.domain.entities import LogEntryEntity
+from logs_interceptor.infrastructure.internal_capture_guard import (
+    is_internal_log_capture_suppressed,
+)
 from logs_interceptor.infrastructure.transport.loki_json_transport import LokiJsonTransport, RetryableTransportError
 
 
@@ -68,6 +71,24 @@ def test_loki_json_transport_http_error(monkeypatch: pytest.MonkeyPatch) -> None
         transport.send(_entries())
 
     assert transport.get_health()["healthy"] is False
+
+
+def test_loki_json_transport_suppresses_internal_capture_during_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport = LokiJsonTransport(_config())
+    observed: list[bool] = []
+
+    def fake_request(headers, body):
+        del headers, body
+        observed.append(is_internal_log_capture_suppressed())
+        return _Response(status_code=204)
+
+    monkeypatch.setattr(transport, "_request", fake_request)
+
+    transport.send(_entries())
+
+    assert observed == [True]
 
 
 def test_timestamp_to_ns_uses_timezone_correctly() -> None:

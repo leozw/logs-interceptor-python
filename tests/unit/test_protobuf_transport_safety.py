@@ -11,6 +11,10 @@ from logs_interceptor.config import (
     ResolvedPerformanceConfig,
     ResolvedTransportConfig,
 )
+from logs_interceptor.domain.entities import LogEntryEntity
+from logs_interceptor.infrastructure.internal_capture_guard import (
+    is_internal_log_capture_suppressed,
+)
 from logs_interceptor.infrastructure.transport.loki_protobuf_transport import LokiProtobufTransport
 from logs_interceptor.infrastructure.transport.resilient_transport import ResilientTransport
 from logs_interceptor.infrastructure.transport.transport_factory import TransportFactory
@@ -91,3 +95,47 @@ def test_transport_factory_falls_back_to_json_for_snappy_without_opt_in(monkeypa
     transport = TransportFactory.create(config)
     assert isinstance(transport, ResilientTransport)
     assert transport._transport.__class__.__name__ == "LokiJsonTransport"  # noqa: SLF001
+
+
+def test_protobuf_transport_suppresses_internal_capture_during_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Snappy:
+        @staticmethod
+        def compress(raw: bytes) -> bytes:
+            return raw[::-1]
+
+    class _Response:
+        status_code = 204
+        text = ""
+
+    monkeypatch.setenv("LOGS_ENABLE_EXPERIMENTAL_PROTOBUF", "true")
+    monkeypatch.setattr(
+        "logs_interceptor.infrastructure.transport.loki_protobuf_transport.snappy",
+        _Snappy(),
+    )
+
+    transport = LokiProtobufTransport(_config().transport)
+    observed: list[bool] = []
+
+    def fake_request(headers, body):
+        del headers, body
+        observed.append(is_internal_log_capture_suppressed())
+        return _Response()
+
+    monkeypatch.setattr(transport, "_request", fake_request)
+
+    transport.send(
+        [
+            LogEntryEntity(
+                id="1",
+                timestamp="2026-01-01T00:00:00.000000+00:00",
+                level="info",
+                message="hello",
+                labels={"service": "billing"},
+                context={"a": 1},
+            )
+        ]
+    )
+
+    assert observed == [True]

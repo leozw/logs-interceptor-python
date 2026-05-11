@@ -133,6 +133,11 @@ def _coerce_config(user_config: LogsInterceptorConfig | dict[str, Any] | None) -
                 max_message_length=_pick(filter_raw, "max_message_length", "maxMessageLength"),
                 sanitize=_pick(filter_raw, "sanitize", "sanitize"),
                 sensitive_patterns=_pick(filter_raw, "sensitive_patterns", "sensitivePatterns"),
+                exclude_logger_prefixes=_pick(
+                    filter_raw,
+                    "exclude_logger_prefixes",
+                    "excludeLoggerPrefixes",
+                ),
             )
             if filter_raw
             else None
@@ -248,29 +253,46 @@ async def adestroy() -> None:
 
 
 class _GlobalLoggerProxy:
-    def debug(self, message: str, context: dict[str, Any] | None = None) -> None:
+    def debug(self, message: str, *args: Any, context: dict[str, Any] | None = None, **kwargs: Any) -> None:
         if _global_runtime is not None:
-            _global_runtime.logger.debug(message, context)
+            _global_runtime.logger.debug(message, *args, context=context, **kwargs)
 
-    def info(self, message: str, context: dict[str, Any] | None = None) -> None:
+    def info(self, message: str, *args: Any, context: dict[str, Any] | None = None, **kwargs: Any) -> None:
         if _global_runtime is not None:
-            _global_runtime.logger.info(message, context)
+            _global_runtime.logger.info(message, *args, context=context, **kwargs)
 
-    def warn(self, message: str, context: dict[str, Any] | None = None) -> None:
+    def warn(self, message: str, *args: Any, context: dict[str, Any] | None = None, **kwargs: Any) -> None:
         if _global_runtime is not None:
-            _global_runtime.logger.warn(message, context)
+            _global_runtime.logger.warn(message, *args, context=context, **kwargs)
 
-    def error(self, message: str, context: dict[str, Any] | None = None) -> None:
-        if _global_runtime is not None:
-            _global_runtime.logger.error(message, context)
+    def warning(self, message: str, *args: Any, context: dict[str, Any] | None = None, **kwargs: Any) -> None:
+        self.warn(message, *args, context=context, **kwargs)
 
-    def fatal(self, message: str, context: dict[str, Any] | None = None) -> None:
+    def error(self, message: str, *args: Any, context: dict[str, Any] | None = None, **kwargs: Any) -> None:
         if _global_runtime is not None:
-            _global_runtime.logger.fatal(message, context)
+            _global_runtime.logger.error(message, *args, context=context, **kwargs)
 
-    def log(self, level: LogLevel, message: str, context: dict[str, Any] | None = None) -> None:
+    def exception(self, message: str, *args: Any, context: dict[str, Any] | None = None, **kwargs: Any) -> None:
         if _global_runtime is not None:
-            _global_runtime.logger.log(level, message, context)
+            _global_runtime.logger.exception(message, *args, context=context, **kwargs)
+
+    def fatal(self, message: str, *args: Any, context: dict[str, Any] | None = None, **kwargs: Any) -> None:
+        if _global_runtime is not None:
+            _global_runtime.logger.fatal(message, *args, context=context, **kwargs)
+
+    def critical(self, message: str, *args: Any, context: dict[str, Any] | None = None, **kwargs: Any) -> None:
+        self.fatal(message, *args, context=context, **kwargs)
+
+    def log(
+        self,
+        level: LogLevel,
+        message: str,
+        *args: Any,
+        context: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        if _global_runtime is not None:
+            _global_runtime.logger.log(level, message, *args, context=context, **kwargs)
 
     def track_event(self, event_name: str, properties: dict[str, Any] | None = None) -> None:
         if _global_runtime is not None:

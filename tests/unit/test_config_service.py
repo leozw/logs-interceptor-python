@@ -49,6 +49,8 @@ def test_resolve_applies_defaults() -> None:
     assert resolved.transport.max_retries == 3
     assert resolved.buffer.max_size == 100
     assert resolved.filter.sampling_rate == 1.0
+    assert "httpx" in resolved.filter.exclude_logger_prefixes
+    assert "logs_interceptor" in resolved.filter.exclude_logger_prefixes
     assert resolved.circuit_breaker.failure_threshold == 50
     assert resolved.performance.max_concurrent_flushes == 3
 
@@ -112,3 +114,15 @@ def test_resolve_transport_compression_variants() -> None:
         )
     )
     assert snappy_cfg.transport.compression == "snappy"
+
+
+def test_resolve_filter_normalizes_custom_excluded_prefixes() -> None:
+    resolved = ConfigService.resolve(
+        LogsInterceptorConfig(
+            transport=TransportConfig(url="https://loki.example.com/loki/api/v1/push", tenant_id="tenant"),
+            app_name="app",
+            filter=FilterConfig(exclude_logger_prefixes=["HTTPX", " httpx ", "custom_stack"]),
+        )
+    )
+
+    assert resolved.filter.exclude_logger_prefixes == ["httpx", "custom_stack"]

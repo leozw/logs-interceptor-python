@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "elven-logs-interceptor-python"
-version = "0.1.2"
+version = "0.1.7"
 description = "Production-grade logs interceptor for Python with Loki transport, resilience, batching, and framework integrations."
 readme = "README.md"
 requires-python = ">=3.10"

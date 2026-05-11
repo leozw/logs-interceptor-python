@@ -15,11 +15,11 @@ from ..infrastructure.filter import LogFilter
 from ..infrastructure.interceptors import RuntimeInterceptor
 from ..infrastructure.transport import TransportFactory
 
-otel_trace: Any = None
+otel_trace: Any | None
 try:
     from opentelemetry import trace as otel_trace
 except Exception:  # pragma: no cover - optional dependency
-    pass
+    otel_trace = None
 
 
 @dataclass(slots=True)
@@ -81,7 +81,11 @@ class LogsInterceptorFactory:
 
         runtime_interceptor = None
         if config.intercept_console:
-            runtime_interceptor = RuntimeInterceptor(logger, config.preserve_original_console)
+            runtime_interceptor = RuntimeInterceptor(
+                logger,
+                config.preserve_original_console,
+                exclude_prefixes=config.filter.exclude_logger_prefixes,
+            )
             runtime_interceptor.enable()
 
         original_destroy = logger.destroy

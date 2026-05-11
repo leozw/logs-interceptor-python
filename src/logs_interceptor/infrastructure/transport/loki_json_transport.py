@@ -5,6 +5,7 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from importlib import import_module
 from typing import Any, cast
 
 import httpx
@@ -12,10 +13,12 @@ import httpx
 from ...config import ResolvedTransportConfig
 from ...domain.entities import LogEntryEntity
 from ...types import TransportHealth, TransportMetrics
+from ...utils import get_distribution_version
 from ..compression import CompressorConfig, CompressorFactory
+from ..internal_capture_guard import suppress_internal_log_capture
 
 try:
-    import orjson  # type: ignore[import-not-found]
+    orjson = cast(Any, import_module("orjson"))
 except Exception:  # pragma: no cover - optional dependency
     orjson = None
 
@@ -88,7 +91,10 @@ class LokiJsonTransport:
             headers: dict[str, str] = {
                 "Content-Type": "application/json",
                 "X-Scope-OrgID": self._config.tenant_id,
-                "User-Agent": "elven-logs-interceptor-python/0.1.2",
+                "User-Agent": (
+                    "elven-logs-interceptor-python/"
+                    f"{get_distribution_version('elven-logs-interceptor-python')}"
+                ),
                 **self._extra_headers,
             }
             if self._config.auth_token:
@@ -98,7 +104,8 @@ class LokiJsonTransport:
                 if encoding:
                     headers["Content-Encoding"] = encoding
 
-            response = self._request(headers, body)
+            with suppress_internal_log_capture():
+                response = self._request(headers, body)
 
             if response.status_code >= 300:
                 raise RetryableTransportError(

@@ -45,6 +45,7 @@ class FilterConfig:
     max_message_length: int | None = None
     sanitize: bool | None = None
     sensitive_patterns: list[str] | None = None
+    exclude_logger_prefixes: list[str] | None = None
 
 
 @dataclass(slots=True)
@@ -149,6 +150,7 @@ class ResolvedFilterConfig:
     max_message_length: int
     sanitize: bool
     sensitive_patterns: list[str]
+    exclude_logger_prefixes: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)

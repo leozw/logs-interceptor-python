@@ -4,6 +4,7 @@ import json
 import os
 import time
 from dataclasses import dataclass
+from importlib import import_module
 from typing import Any, cast
 
 import httpx
@@ -11,11 +12,14 @@ import httpx
 from ...config import ResolvedTransportConfig
 from ...domain.entities import LogEntryEntity
 from ...types import TransportHealth, TransportMetrics
+from ...utils import get_distribution_version
+from ..internal_capture_guard import suppress_internal_log_capture
 
 try:
-    import snappy  # type: ignore[import-not-found]
+    snappy = cast(Any, import_module("snappy"))
 except Exception:  # pragma: no cover - optional dependency
     snappy = None
+
 
 @dataclass(slots=True)
 class RetryableTransportError(Exception):
@@ -94,13 +98,17 @@ class LokiProtobufTransport:
                 "Content-Type": "application/x-protobuf",
                 "Content-Encoding": "snappy",
                 "X-Scope-OrgID": self._config.tenant_id,
-                "User-Agent": "elven-logs-interceptor-python/0.1.2",
+                "User-Agent": (
+                    "elven-logs-interceptor-python/"
+                    f"{get_distribution_version('elven-logs-interceptor-python')}"
+                ),
                 **self._extra_headers,
             }
             if self._config.auth_token:
                 headers["Authorization"] = f"Bearer {self._config.auth_token}"
 
-            response = self._request(headers, compressed)
+            with suppress_internal_log_capture():
+                response = self._request(headers, compressed)
             if response.status_code >= 300:
                 raise RetryableTransportError(
                     message=f"Loki responded with {response.status_code}: {response.text}",

@@ -35,6 +35,37 @@ init(
 logger.info("service started", {"port": 3000})
 ```
 
+## Logging compatibility
+
+The logger accepts both the Elven structured style and common Python
+`logging` call patterns. This makes migration safer when legacy code replaces
+`logging.getLogger(__name__)` with the Elven proxy.
+
+```python
+logger.info("payload created", {"request_id": "req-1"})
+logger.info("payload created: %s", payload)
+logger.info("payload created: %(id)s", {"id": payload_id})
+logger.info("payload created: {}", payload_id)
+logger.info("payload created: %s", payload_id, extra={"request_id": "req-1"})
+logger.exception("failed to create payload: %s", payload_id)
+```
+
+When intercepting the standard Python `logging` module, `extra={...}` is
+captured under `context.extra`:
+
+```python
+logging.getLogger(__name__).info(
+    "payload created",
+    extra={"payload": payload},
+)
+```
+
+Supported aliases: `warning(...)`, `exception(...)` and `critical(...)`.
+
+Sensitive fields such as `cpf`, `password`, `token` and `authorization` are
+redacted by default. Set `LOGS_FILTER_SANITIZE=false` only when raw sensitive
+data is explicitly required and approved.
+
 ## Environment Variables
 
 The package supports all `LOGS_*` variables from the JS v3 design.
@@ -119,7 +150,7 @@ Labels:
 - `is_initialized()`
 - `destroy()`
 - `adestroy()`
-- `logger` proxy with `debug/info/warn/error/fatal/log/track_event/flush/aflush/get_metrics/get_health/destroy/adestroy/with_context/with_context_async`
+- `logger` proxy with `debug/info/warn/warning/error/exception/fatal/critical/log/track_event/flush/aflush/get_metrics/get_health/destroy/adestroy/with_context/with_context_async`
 
 Python import remains:
 

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from typing import cast
+from importlib import import_module
+from typing import Any, cast
 
 from .base import Compressor, CompressorConfig
 
 try:
-    import brotli  # type: ignore[import-not-found]
+    brotli = cast(Any, import_module("brotli"))
 except Exception:  # pragma: no cover - optional dependency
     brotli = None
 

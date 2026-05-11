@@ -17,6 +17,7 @@ from ..config import (
     ResolvedTransportConfig,
     TransportConfig,
 )
+from ..infrastructure.log_noise_filter import normalize_excluded_logger_prefixes
 from ..types import LogLevel
 
 DEFAULT_LEVELS: list[LogLevel] = ["debug", "info", "warn", "error", "fatal"]
@@ -194,6 +195,9 @@ class ConfigService:
             else source.max_message_length,
             sanitize=True if source.sanitize is None else source.sanitize,
             sensitive_patterns=source.sensitive_patterns or DEFAULT_SENSITIVE_PATTERNS,
+            exclude_logger_prefixes=list(
+                normalize_excluded_logger_prefixes(source.exclude_logger_prefixes)
+            ),
         )
 
     @staticmethod

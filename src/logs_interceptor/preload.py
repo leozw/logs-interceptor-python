@@ -8,14 +8,25 @@ import sys
 _LOGS_INTERCEPTOR_PRELOADED = False
 
 
+def _write(stream: object, prefix: str, *args: object) -> None:
+    message = " ".join(str(arg) for arg in args)
+    text = f"{prefix} {message}\n"
+    writer = getattr(stream, "write", None)
+    flusher = getattr(stream, "flush", None)
+    if callable(writer):
+        writer(text)
+    if callable(flusher):
+        flusher()
+
+
 def _debug(*args: object) -> None:
     if os.getenv("LOGS_DEBUG") == "true" and os.getenv("LOGS_SILENT_ERRORS") != "true":
-        print("[logs-interceptor:preload]", *args)
+        _write(sys.stdout, "[logs-interceptor:preload]", *args)
 
 
 def _error(*args: object) -> None:
     if os.getenv("LOGS_SILENT_ERRORS") != "true":
-        print("[logs-interceptor:preload]", *args, file=sys.stderr)
+        _write(sys.stderr, "[logs-interceptor:preload]", *args)
 
 
 def _install() -> None:

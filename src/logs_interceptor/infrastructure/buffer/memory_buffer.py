@@ -165,12 +165,16 @@ class MemoryBuffer:
             return
 
         def _on_timer() -> None:
+            callback: Callable[[], None] | None = None
             with self._lock:
                 self._flush_timer = None
                 if self._destroyed:
                     return
                 if self._flush_callback and self._entries:
-                    self._flush_callback()
+                    callback = self._flush_callback
+
+            if callback is not None:
+                callback()
 
         self._flush_timer = threading.Timer(self._config.flush_interval / 1000, _on_timer)
         self._flush_timer.daemon = True

@@ -7,9 +7,12 @@ import random
 import re
 import secrets
 import sys
-from collections.abc import Iterable
+import traceback
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, fields, is_dataclass
 from datetime import datetime
+from functools import cache
+from importlib import import_module
 from typing import Any, cast
 
 from .config import (
@@ -28,7 +31,7 @@ from .domain.value_objects import LogLevelVO
 from .types import LogLevel
 
 try:
-    import orjson  # type: ignore[import-not-found]
+    orjson = cast(Any, import_module("orjson"))
 except Exception:  # pragma: no cover - optional dependency
     orjson = None
 
@@ -78,6 +81,19 @@ def is_debug_enabled() -> bool:
 
 def is_silent_errors_enabled() -> bool:
     return parse_bool(os.getenv("LOGS_SILENT_ERRORS"), False)
+
+
+@cache
+def get_distribution_version(distribution_name: str) -> str:
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+    except ImportError:  # pragma: no cover - Python 3.10+ should not hit this
+        return "unknown"
+
+    try:
+        return version(distribution_name)
+    except PackageNotFoundError:
+        return "unknown"
 
 
 def _internal_log(level: str, message: str, context: Any | None = None) -> None:
@@ -158,6 +174,145 @@ def safe_stringify(value: Any, max_depth: int = 10) -> str:
         return json.dumps(converted, separators=(",", ":"), ensure_ascii=False)
     except Exception as exc:  # pragma: no cover - hard-failure fallback
         return f"[Unserializable: {exc}]"
+
+
+def normalize_log_call(
+    message: str,
+    *args: Any,
+    context: dict[str, Any] | None = None,
+    **kwargs: Any,
+) -> tuple[str, dict[str, Any] | None]:
+    keyword_context = _normalize_context(context, kwargs)
+    if not args:
+        return message, keyword_context
+
+    format_args, positional_context = _split_log_args(message, args)
+    resolved_context = _merge_contexts(positional_context, keyword_context)
+
+    if not format_args:
+        return message, resolved_context
+
+    return _format_log_message(message, format_args), resolved_context
+
+
+def _split_log_args(
+    message: str,
+    args: tuple[Any, ...],
+) -> tuple[tuple[Any, ...], dict[str, Any] | None]:
+    if not args:
+        return args, None
+
+    last_arg = args[-1]
+    if not isinstance(last_arg, Mapping):
+        return args, None
+
+    placeholder_count = _count_format_placeholders(message)
+    if placeholder_count >= len(args):
+        return args, None
+
+    return args[:-1], dict(cast(Mapping[str, Any], last_arg))
+
+
+def _merge_contexts(
+    positional_context: dict[str, Any] | None,
+    keyword_context: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if positional_context is None:
+        return keyword_context
+    if keyword_context is None:
+        return positional_context
+    return {**positional_context, **keyword_context}
+
+
+def _format_log_message(message: str, format_args: tuple[Any, ...]) -> str:
+    if not format_args:
+        return message
+
+    try:
+        if len(format_args) == 1 and isinstance(format_args[0], Mapping):
+            return message % format_args[0]
+        return message % format_args
+    except Exception:
+        pass
+
+    if _looks_like_brace_format(message):
+        try:
+            return message.format(*format_args)
+        except Exception:
+            pass
+
+    rendered_args = " ".join(safe_stringify(arg) for arg in format_args)
+    if not rendered_args:
+        return message
+    separator = "" if not message or message.endswith((" ", "\n", "\t")) else " "
+    return f"{message}{separator}{rendered_args}"
+
+
+def _normalize_context(
+    context: dict[str, Any] | None,
+    kwargs: dict[str, Any],
+) -> dict[str, Any] | None:
+    resolved: dict[str, Any] = {}
+
+    extra = kwargs.pop("extra", None)
+    if isinstance(extra, Mapping):
+        resolved.update(dict(extra))
+    elif extra is not None:
+        resolved["extra"] = safe_stringify(extra)
+
+    exc_info = kwargs.pop("exc_info", None)
+    if exc_info:
+        resolved["exception"] = _format_exc_info(exc_info)
+
+    if kwargs.pop("stack_info", False):
+        resolved["stack_info"] = "".join(traceback.format_stack())
+
+    kwargs.pop("stacklevel", None)
+
+    kw_context = kwargs.pop("context", None)
+    if isinstance(kw_context, Mapping):
+        resolved.update(dict(kw_context))
+    elif kw_context is not None:
+        resolved["context"] = safe_stringify(kw_context)
+
+    if kwargs:
+        resolved.update(kwargs)
+
+    if context:
+        resolved.update(context)
+
+    return resolved or None
+
+
+def _format_exc_info(exc_info: Any) -> str:
+    if exc_info is True:
+        current = sys.exc_info()
+        if current[0] is None:
+            return ""
+        return "".join(traceback.format_exception(*current))
+    if isinstance(exc_info, BaseException):
+        return "".join(traceback.format_exception(type(exc_info), exc_info, exc_info.__traceback__))
+    if isinstance(exc_info, tuple):
+        try:
+            return "".join(traceback.format_exception(*exc_info))
+        except Exception:
+            return safe_stringify(exc_info)
+    return safe_stringify(exc_info)
+
+
+def _count_format_placeholders(message: str) -> int:
+    percent_count = len(
+        re.findall(
+            r"%(?:\([^)]+\))?[-+#0 ]?(?:\d+|\*)?(?:\.\d+|\.\*)?[hlL]?[diouxXeEfFgGcrsa]",
+            message,
+        )
+    )
+    brace_count = len(re.findall(r"\{(?:\d+)?(?:![rsa])?(?::[^{}]+)?\}", message))
+    return max(percent_count, brace_count)
+
+
+def _looks_like_brace_format(message: str) -> bool:
+    return bool(re.search(r"\{(?:\d+)?(?:![rsa])?(?::[^{}]+)?\}", message))
 
 
 def detect_sensitive_data(text: str, patterns: Iterable[str]) -> bool:
@@ -396,6 +551,12 @@ def load_config_from_env() -> LogsInterceptorConfig:
             max_message_length=parse_int_range(
                 env.get("LOGS_FILTER_MAX_MESSAGE_LENGTH"), 8192, 64, 1_000_000
             ),
+            exclude_logger_prefixes=[
+                item.strip()
+                for item in (env.get("LOGS_FILTER_EXCLUDE_LOGGER_PREFIXES") or "").split(",")
+                if item.strip()
+            ]
+            or None,
         ),
         circuit_breaker=CircuitBreakerConfig(
             enabled=parse_bool(env.get("LOGS_CIRCUIT_BREAKER_ENABLED"), True),
